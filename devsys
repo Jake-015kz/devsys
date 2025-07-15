@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+
+# 📂 Путь: ~/.local/bin/devsys
+# 📌 Зависимости: paru, fzf, gum, btop, du, journalctl, pacman, systemctl
+
+# === Проверка зависимостей ===
+for cmd in fzf gum btop paru; do
+  if ! command -v "$cmd" &>/dev/null; then
+    echo "\e[31m[!] Не найдено: $cmd\e[0m. Установите через paru."
+    exit 1
+  fi
+done
+
+# === Цвета ===
+GREEN="\e[32m"
+BLUE="\e[34m"
+RESET="\e[0m"
+
+# === Очистка системы ===
+clean_system() {
+  echo -e "${BLUE}🧹 Очищаем systemd журналы...${RESET}"
+  sudo journalctl --vacuum-time=2d
+  
+  echo -e "${BLUE}🧹 Очищаем pacman-кэш...${RESET}"
+  sudo paccache -r
+  
+  echo -e "${BLUE}🧹 Удаляем сироты...${RESET}"
+  sudo pacman -Rns $(pacman -Qdtq) 2>/dev/null || echo "Нет сирот"
+
+  echo -e "${BLUE}📦 Удаляем неиспользуемые AUR-пакеты...${RESET}"
+  paru -Rns $(paru -Qdtq) 2>/dev/null || echo "Нет сирот в AUR"
+
+  echo -e "${BLUE}📊 Освобожденное место:${RESET}"
+  df -h / | grep -v tmpfs
+}
+
+# === Менеджер сервисов ===
+manage_services() {
+  selected=$(systemctl list-units --type=service --user | fzf --multi --header="Выбери сервисы (вверх/вниз, пробел — выбрать)" --preview='systemctl status {1}' | awk '{print $1}')
+  if [ -z "$selected" ]; then
+    echo "Ничего не выбрано"
+    return
+  fi
+
+  action=$(gum choose "🔄 Перезапустить" "⏹ Остановить" "▶️ Запустить" "🚫 Отключить")
+
+  for svc in $selected; do
+    case "$action" in
+      *Перезапустить*) systemctl --user restart "$svc" ;;
+      *Остановить*) systemctl --user stop "$svc" ;;
+      *Запустить*) systemctl --user start "$svc" ;;
+      *Отключить*) systemctl --user disable "$svc" ;;
+    esac
+  done
+}
+
+# === Обновление системы ===
+system_update() {
+  echo -e "${GREEN}⬇️ Обновляем официальные пакеты...${RESET}"
+  sudo pacman -Syu
+  echo -e "${GREEN}⬇️ Обновляем AUR пакеты...${RESET}"
+  paru -Syu
+}
+
+# === Статистика памяти через zramctl и sensors ===
+show_stats() {
+  echo -e "${BLUE}📊 ZRAM:${RESET}"
+  zramctl
+  echo -e "\n${BLUE}🌡 Температуры:${RESET}"
+  sensors
+  echo -e "\n${BLUE}🧠 Использование памяти:${RESET}"
+  free -h
+}
+
+# === Главное меню ===
+main_menu() {
+  choice=$(gum choose "📦 Обновление системы" "🧹 Очистка мусора" "🧠 Показать статистику" "⚙️ Управление сервисами" "📈 Открыть btop" "🚪 Выйти")
+  case "$choice" in
+    "📦 Обновление системы") system_update ;;
+    "🧹 Очистка мусора") clean_system ;;
+    "🧠 Показать статистику") show_stats ;;
+    "⚙️ Управление сервисами") manage_services ;;
+    "📈 Открыть btop") btop ;;
+    *) echo "Выход..."; exit 0 ;;
+  esac
+}
+
+# === Запуск ===
+
+main_menu
