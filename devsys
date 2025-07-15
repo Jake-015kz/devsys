@@ -1,90 +1,106 @@
 #!/usr/bin/env bash
 
-# 📂 Путь: ~/.local/bin/devsys
-# 📌 Зависимости: paru, fzf, gum, btop, du, journalctl, pacman, systemctl
+# === devsys by Евгений ===
+VERSION="1.0.3"
 
-# === Проверка зависимостей ===
-for cmd in fzf gum btop paru; do
-  if ! command -v "$cmd" &>/dev/null; then
-    echo "\e[31m[!] Не найдено: $cmd\e[0m. Установите через paru."
-    exit 1
+REPO_URL="https://github.com/Jake-015kz/devsys.git"
+REPO_NAME="devsys"
+
+# === Colors ===
+GREEN='\033[1;32m'
+RED='\033[1;31m'
+YELLOW='\033[1;33m'
+RESET='\033[0m'
+
+# === Проверка версий ===
+if [[ $1 == "--version" ]]; then
+  echo -e "🔢 Local version: ${GREEN}$VERSION${RESET}"
+  if git ls-remote --tags $REPO_URL &>/dev/null; then
+    LATEST=$(git ls-remote --tags $REPO_URL | grep -o 'refs/tags/v[0-9.]*' | sort -V | tail -n1 | sed 's/refs\/tags\///')
+    echo -e "🌐 Remote version: ${YELLOW}${LATEST}${RESET}"
+    [[ "v$VERSION" != "$LATEST" ]] && echo -e "⚠️ Доступна новая версия!" || echo -e "✅ У вас последняя версия."
+  else
+    echo -e "${RED}⚠️ Не удалось получить данные с GitHub${RESET}"
   fi
-done
+  exit 0
+fi
 
-# === Цвета ===
-GREEN="\e[32m"
-BLUE="\e[34m"
-RESET="\e[0m"
-
-# === Очистка системы ===
-clean_system() {
-  echo -e "${BLUE}🧹 Очищаем systemd журналы...${RESET}"
-  sudo journalctl --vacuum-time=2d
-  
-  echo -e "${BLUE}🧹 Очищаем pacman-кэш...${RESET}"
-  sudo paccache -r
-  
-  echo -e "${BLUE}🧹 Удаляем сироты...${RESET}"
-  sudo pacman -Rns $(pacman -Qdtq) 2>/dev/null || echo "Нет сирот"
-
-  echo -e "${BLUE}📦 Удаляем неиспользуемые AUR-пакеты...${RESET}"
-  paru -Rns $(paru -Qdtq) 2>/dev/null || echo "Нет сирот в AUR"
-
-  echo -e "${BLUE}📊 Освобожденное место:${RESET}"
-  df -h / | grep -v tmpfs
-}
-
-# === Менеджер сервисов ===
-manage_services() {
-  selected=$(systemctl list-units --type=service --user | fzf --multi --header="Выбери сервисы (вверх/вниз, пробел — выбрать)" --preview='systemctl status {1}' | awk '{print $1}')
-  if [ -z "$selected" ]; then
-    echo "Ничего не выбрано"
-    return
+# === Обновление скрипта ===
+if [[ $1 == "update" ]]; then
+  echo -e "🔄 ${YELLOW}Обновление devsys...${RESET}"
+  SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+  if [ -d "$SCRIPT_DIR/.git" ]; then
+    git -C "$SCRIPT_DIR" pull origin main && echo -e "✅ Обновлено!"
+  else
+    echo -e "${RED}❌ Скрипт не был установлен через git clone${RESET}"
+    echo "📦 Рекомендуется: git clone $REPO_URL ~/.local/bin/devsys"
   fi
+  exit 0
+fi
 
-  action=$(gum choose "🔄 Перезапустить" "⏹ Остановить" "▶️ Запустить" "🚫 Отключить")
-
-  for svc in $selected; do
-    case "$action" in
-      *Перезапустить*) systemctl --user restart "$svc" ;;
-      *Остановить*) systemctl --user stop "$svc" ;;
-      *Запустить*) systemctl --user start "$svc" ;;
-      *Отключить*) systemctl --user disable "$svc" ;;
-    esac
-  done
-}
-
-# === Обновление системы ===
-system_update() {
-  echo -e "${GREEN}⬇️ Обновляем официальные пакеты...${RESET}"
-  sudo pacman -Syu
-  echo -e "${GREEN}⬇️ Обновляем AUR пакеты...${RESET}"
-  paru -Syu
-}
-
-# === Статистика памяти через zramctl и sensors ===
-show_stats() {
-  echo -e "${BLUE}📊 ZRAM:${RESET}"
-  zramctl
-  echo -e "\n${BLUE}🌡 Температуры:${RESET}"
-  sensors
-  echo -e "\n${BLUE}🧠 Использование памяти:${RESET}"
-  free -h
+# === ASCII HEADER ===
+ascii_logo() {
+  echo -e "${GREEN}"
+  echo "╭────────────────────────────╮"
+  echo "│     🚀 DevSys Utility      │"
+  echo "╰────────────────────────────╯"
+  echo -e "${RESET}"
 }
 
 # === Главное меню ===
 main_menu() {
-  choice=$(gum choose "📦 Обновление системы" "🧹 Очистка мусора" "🧠 Показать статистику" "⚙️ Управление сервисами" "📈 Открыть btop" "🚪 Выйти")
-  case "$choice" in
-    "📦 Обновление системы") system_update ;;
-    "🧹 Очистка мусора") clean_system ;;
-    "🧠 Показать статистику") show_stats ;;
-    "⚙️ Управление сервисами") manage_services ;;
-    "📈 Открыть btop") btop ;;
-    *) echo "Выход..."; exit 0 ;;
+  ascii_logo
+  options=(
+    "📦 Обновить систему (paru -Syu)"
+    "🧹 Очистить кэш, логи, сироты"
+    "🧠 Показать RAM/ZRAM (zramctl)"
+    "🔥 Запущенные сервисы"
+    "⚙️  Включить/отключить сервисы"
+    "🔄 Обновить DevSys"
+    "🔢 Версия DevSys"
+    "🚪 Выход"
+  )
+
+  selected=$(printf '%s\n' "${options[@]}" | fzf --prompt "👉 Выбери действие: " --height 40% --border)
+
+  case "$selected" in
+    *"Обновить систему"*) paru -Syu ;;
+    *"Очистить кэш"*) cleanup ;;
+    *"RAM"*) zramctl && free -h ;;
+    *"Запущенные сервисы"*) systemctl list-units --type=service --state=running ;;
+    *"Включить/отключить сервисы"*) service_toggle ;;
+    *"Обновить DevSys"*) "$0" update ;;
+    *"Версия"*) "$0" --version ;;
+    *) echo "👋 Пока!"; exit 0 ;;
   esac
 }
 
-# === Запуск ===
+# === Очистка системы ===
+cleanup() {
+  echo -e "${YELLOW}🧹 Очистка...${RESET}"
+  journalctl --vacuum-time=2d
+  sudo pacman -Scc --noconfirm
+  sudo pacman -Rns $(pacman -Qtdq 2>/dev/null) --noconfirm
+  echo -e "${GREEN}✅ Очистка завершена${RESET}"
+  echo "📊 Освобождено:"
+  df -h | grep -v loop | grep -E '^/dev/'
+}
 
+# === Управление сервисами ===
+service_toggle() {
+  all_services=$(systemctl list-unit-files --type=service | awk '{print $1}' | tail -n +2)
+  selected=$(echo "$all_services" | fzf --multi --prompt "🧠 Включить/отключить: ")
+
+  for svc in $selected; do
+    if systemctl is-enabled --quiet "$svc"; then
+      sudo systemctl disable "$svc"
+      echo -e "${YELLOW}Отключено: $svc${RESET}"
+    else
+      sudo systemctl enable "$svc"
+      echo -e "${GREEN}Включено: $svc${RESET}"
+    fi
+  done
+}
+
+# === Запуск основного меню ===
 main_menu
